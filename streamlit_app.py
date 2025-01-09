@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import folium_static
+from folium.plugins import Draw
 
 # Fungsi untuk memuat data CSV
 def load_data(file):
@@ -18,16 +19,28 @@ def load_data(file):
         st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
-# Fungsi untuk membuat peta
-def create_map(data):
+# Fungsi untuk membuat peta dengan fitur klik untuk mendapatkan koordinat
+def create_map(data, lat=None, lon=None):
     if data.empty:
         st.error("Tidak ada data lokasi yang valid untuk ditampilkan di peta.")
         return None
 
-    map_center = [data['SID_LAT'].mean(), data['SID_LONG'].mean()]
+    map_center = [data['SID_LAT'].mean(), data['SID_LONG'].mean()] if lat is None or lon is None else [lat, lon]
     my_map = folium.Map(location=map_center, zoom_start=6, tiles="OpenStreetMap")
 
+    # Warna marker berdasarkan kategori
+    color_map = {
+        'pinggiran laut': 'blue',
+        'kolam': 'green',
+        'pinggiran muara/jembatan': 'red',
+        'pinggiran waduk': 'orange',
+        'pinggiran sungai': 'purple'
+    }
+
     for _, row in data.iterrows():
+        category = row.get('jenis_spot', 'lainnya').lower()
+        color = color_map.get(category, 'gray')  # Warna default adalah gray untuk kategori lain
+
         popup_content = f"""
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.4;">
             <h4>{row.get('nama', 'Tidak Ada Nama')}</h4>
@@ -43,8 +56,16 @@ def create_map(data):
         folium.Marker(
             location=[row['SID_LAT'], row['SID_LONG']],
             popup=folium.Popup(popup_content, max_width=300),
-            tooltip=f"{row.get('nama', 'Tidak Ada Nama')}"
+            tooltip=f"{row.get('nama', 'Tidak Ada Nama')}",
+            icon=folium.Icon(color=color)
         ).add_to(my_map)
+
+    # Menambahkan fitur draw untuk klik lokasi
+    draw = Draw(
+        draw_options={'polyline': False, 'polygon': False, 'rectangle': False, 'circle': False},
+        edit_options={'edit': True}
+    )
+    draw.add_to(my_map)
 
     return my_map
 
@@ -73,10 +94,6 @@ def home(data=None):
     4. Unduh data yang telah diedit sesuai kebutuhan.
     """)
 
-    # Widget cuaca (contoh statis)
-    st.subheader("Informasi Cuaca")
-    st.write("Cuaca di lokasi Anda saat ini: Cerah, 29°C")
-
 # Halaman peta interaktif
 def map_page():
     st.title('Peta Interaktif')
@@ -103,19 +120,33 @@ def map_page():
         st.write("Data Terunggah:")
         st.dataframe(data)
 
-        my_map = create_map(data)
+        # Variabel untuk menampung latitude dan longitude
+        clicked_lat, clicked_lon = None, None
+
+        # Menampilkan peta
+        my_map = create_map(data, clicked_lat, clicked_lon)
         if my_map:
             folium_static(my_map, width=800, height=600)
 
-        # Menambah data baru
+        # Fitur tambah data
         st.subheader("Tambah Data Lokasi Baru")
+
+        # Form untuk menambah data baru
         with st.form("tambah_data"):
+            # Koordinat yang akan ditampilkan setelah klik
+            if clicked_lat is not None and clicked_lon is not None:
+                st.write(f"Koordinat yang dipilih: Latitude = {clicked_lat}, Longitude = {clicked_lon}")
+                lat = clicked_lat
+                lon = clicked_lon
+            else:
+                lat = st.number_input("Latitude", format="%.6f", value=0.0)
+                lon = st.number_input("Longitude", format="%.6f", value=0.0)
+
             nama = st.text_input("Nama Lokasi")
             jenis_spot = st.text_input("Jenis Spot")
             aksesibilitas = st.text_input("Aksesibilitas")
             jenis_ikan = st.text_input("Jenis Ikan")
-            lat = st.number_input("Latitude", format="%.6f")
-            lon = st.number_input("Longitude", format="%.6f")
+
             tambah_submitted = st.form_submit_button("Tambah Data")
 
             if tambah_submitted:
